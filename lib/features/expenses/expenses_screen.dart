@@ -28,7 +28,6 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> with SingleTick
     final viewModel = ref.read(expensesProvider.notifier);
     final theme = Theme.of(context);
 
-    // Formatar Título do Mês
     final dateStr = DateFormat('MMMM yyyy', 'pt_PT').format(state.currentMonth);
     final capitalizedTitle = dateStr.replaceFirst(dateStr[0], dateStr[0].toUpperCase());
 
@@ -36,7 +35,6 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> with SingleTick
       appBar: AppBar(title: const Text("Gestão de Despesas")),
       body: Column(
         children: [
-          // Seletor de Mês
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             color: theme.colorScheme.surfaceContainerLow,
@@ -220,16 +218,13 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> with SingleTick
     );
   }
 
-  // --- LÓGICA DE ARREDONDAMENTO ROBUSTA ---
-  double _calculateRoundedPrice(double rawPrice, bool enabled) {
-    if (!enabled) return rawPrice;
-    
-    // Arredonda para o 0.5 mais próximo
-    double rounded = (rawPrice * 2).round() / 2.0;
-    
-    // PROTEÇÃO: Se arredondar para 0.0 (ex: 0.12), IGNORA O ARREDONDAMENTO e devolve o original
-    if (rounded == 0.0) return rawPrice;
-    
+  // --- LÓGICA DE ARREDONDAMENTO NO TOTAL ---
+  
+  // Arredonda para o 0.50 mais próximo (ex: 11.92 -> 12.0, 0.96 -> 1.0)
+  // Se for muito baixo (ex: 0.12), mantém original
+  double _roundValue(double value) {
+    double rounded = (value * 2).round() / 2.0;
+    if (rounded == 0.0) return value;
     return rounded;
   }
 
@@ -237,17 +232,21 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> with SingleTick
     final qtyCtrl = TextEditingController(text: "1");
     final priceCtrl = TextEditingController(text: product.defaultPrice.toString());
     
+    // Variável para o Switch
+    bool useRounding = true; 
+
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) {
-          final rawPrice = double.tryParse(priceCtrl.text.replaceAll(',', '.')) ?? 0.0;
+          final qty = int.tryParse(qtyCtrl.text) ?? 1;
+          final rawUnitPrice = double.tryParse(priceCtrl.text.replaceAll(',', '.')) ?? 0.0;
           
-          // Switch para o utilizador decidir se quer arredondar
-          // Por defeito LIGADO se o preço for > 0.25€ (para evitar o caso dos pães de 0.12)
-          bool useRounding = rawPrice > 0.25;
-
-          final finalPrice = _calculateRoundedPrice(rawPrice, useRounding);
+          // Cálculo: Preço Bruto = Unitário * Quantidade
+          final rawTotal = rawUnitPrice * qty;
+          
+          // Cálculo: Preço Final (Arredondado ou não)
+          final finalTotal = useRounding ? _roundValue(rawTotal) : rawTotal;
 
           return AlertDialog(
             title: Text("Comprar: ${product.name}"),
@@ -257,54 +256,69 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> with SingleTick
                 TextField(
                   controller: qtyCtrl, 
                   decoration: const InputDecoration(labelText: "Quantidade", prefixIcon: Icon(Icons.numbers)), 
-                  keyboardType: TextInputType.number
+                  keyboardType: TextInputType.number,
+                  onChanged: (_) => setState(() {}) // Atualizar cálculos
                 ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: priceCtrl, 
                   decoration: const InputDecoration(labelText: "Preço Unitário (€)", prefixIcon: Icon(Icons.euro)), 
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  onChanged: (_) => setState(() {}) // Atualizar preview ao digitar
+                  onChanged: (_) => setState(() {}) // Atualizar cálculos
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 
-                // PREVIEW DO PREÇO FINAL
+                // Switch de Arredondamento
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Arredondar Total?", style: TextStyle(fontWeight: FontWeight.bold)),
+                    Switch(
+                      value: useRounding,
+                      onChanged: (val) => setState(() => useRounding = val)
+                    )
+                  ],
+                ),
+                
+                // PREVIEW DO TOTAL
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(top: 8),
                   decoration: BoxDecoration(
-                    // CORREÇÃO DO LINTER: withValues
-                    color: rawPrice != finalPrice ? Colors.amber.withValues(alpha: 0.2) : Colors.transparent,
+                    color: rawTotal != finalTotal ? Colors.amber.withValues(alpha: 0.2) : Colors.green.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8)
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: Column(
                     children: [
-                      const Text("Preço Final:", style: TextStyle(fontWeight: FontWeight.bold)),
-                      Text(
-                        "${finalPrice.toStringAsFixed(2)} €",
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text("Total Bruto:"),
+                          Text("${rawTotal.toStringAsFixed(2)} €", style: const TextStyle(color: Colors.grey)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text("Total Final:", style: TextStyle(fontWeight: FontWeight.bold)),
+                          Text(
+                            "${finalTotal.toStringAsFixed(2)} €",
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: rawTotal != finalTotal ? Colors.amber[800] : Colors.green[800],
+                              fontSize: 18
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ),
-                
-                // Explicação apenas se houver arredondamento
-                if (rawPrice != finalPrice)
-                  // CORREÇÃO DO LINTER: const Constructor
+                if (rawTotal != finalTotal)
                   const Padding(
                     padding: EdgeInsets.only(top: 4),
-                    child: Text(
-                      "(Arredondado para 0.50€ mais próximo)", 
-                      style: TextStyle(fontSize: 10, color: Colors.grey)
-                    ),
-                  )
-                else if (rawPrice > 0 && rawPrice < 0.25)
-                   const Padding(
-                    padding: EdgeInsets.only(top: 4),
-                    child: Text(
-                      "(Valor muito baixo, arredondamento desligado)", 
-                      style: TextStyle(fontSize: 10, color: Colors.blue)
-                    ),
+                    child: Text("(Arredondado para o 0.50€ mais próximo)", style: TextStyle(fontSize: 10, color: Colors.grey)),
                   )
               ],
             ),
@@ -312,8 +326,11 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> with SingleTick
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
               FilledButton(
                 onPressed: () {
-                  final qty = int.tryParse(qtyCtrl.text) ?? 1;
-                  viewModel.addExpense(product, qty, finalPrice);
+                  // Para que o Total bata certo na base de dados, recalculamos o preço unitário
+                  // Novo Unitário = Total Final / Quantidade
+                  final effectiveUnitPrice = qty > 0 ? (finalTotal / qty) : 0.0;
+
+                  viewModel.addExpense(product, qty, effectiveUnitPrice);
                   Navigator.pop(ctx);
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Adicionado!")));
                 },

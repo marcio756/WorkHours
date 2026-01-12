@@ -53,16 +53,14 @@ class ExpensesViewModel extends StateNotifier<ExpensesState> {
   }
 
   void _initStreams() {
-    // 1. Produtos
+    // 1. Produtos (Stream Automático)
     _productsSubscription?.cancel();
     _productsSubscription = _db.select(_db.products).watch().listen((productsList) {
-      // Ordenar e criar NOVA lista para garantir que o StateNotifier deteta a mudança
       final sorted = List<Product>.of(productsList)..sort((a, b) => a.name.compareTo(b.name));
-      
       state = state.copyWith(products: sorted);
     });
 
-    // 2. Despesas
+    // 2. Despesas (Stream Automático)
     _updateExpensesStream();
   }
 
@@ -77,8 +75,6 @@ class ExpensesViewModel extends StateNotifier<ExpensesState> {
       DateUtilsHelper.toIsoDate(end),
     ).listen((expensesList) {
       final total = expensesList.fold(0.0, (sum, item) => sum + (item.price * item.quantity));
-      
-      // Criar nova lista explicitamente
       state = state.copyWith(
         expenses: List.of(expensesList), 
         totalSpent: total,
@@ -86,19 +82,45 @@ class ExpensesViewModel extends StateNotifier<ExpensesState> {
     });
   }
 
+  // --- REFRESH MANUAL (A Solução para o Bug) ---
+  
+  Future<void> _refreshProducts() async {
+    final productsList = await _db.select(_db.products).get();
+    final sorted = List<Product>.of(productsList)..sort((a, b) => a.name.compareTo(b.name));
+    state = state.copyWith(products: sorted);
+  }
+
+  Future<void> _refreshExpenses() async {
+    final start = DateTime(state.currentMonth.year, state.currentMonth.month, 1);
+    final end = DateTime(state.currentMonth.year, state.currentMonth.month + 1, 0);
+    
+    // Usamos o método do DAO ou construímos a query aqui se o DAO não tiver um método 'get' direto exposto desta forma
+    // Como o watchExpensesBetween é uma query customizada, a melhor forma é forçar o stream a emitir ou fazer um get manual similar
+    final expensesList = await (_db.select(_db.expenses)
+      ..where((t) => t.date.isBetweenValues(
+          DateUtilsHelper.toIsoDate(start), 
+          DateUtilsHelper.toIsoDate(end)
+      ))).get();
+
+    final total = expensesList.fold(0.0, (sum, item) => sum + (item.price * item.quantity));
+    state = state.copyWith(
+      expenses: List.of(expensesList),
+      totalSpent: total
+    );
+  }
+
   void changeMonth(int monthsToAdd) {
     final newDate = DateTime(
       state.currentMonth.year,
       state.currentMonth.month + monthsToAdd,
     );
-    // Atualiza se o mês mudar
     if (newDate.year != state.currentMonth.year || newDate.month != state.currentMonth.month) {
       state = state.copyWith(currentMonth: newDate);
       _updateExpensesStream();
     }
   }
 
-  // --- CRUD ---
+  // --- CRUD (Com Refresh Forçado) ---
 
   Future<void> saveProduct({required String name, required double price, int? id}) async {
     final companion = ProductsCompanion(
@@ -107,15 +129,16 @@ class ExpensesViewModel extends StateNotifier<ExpensesState> {
       defaultPrice: drift.Value(price),
     );
     await _db.into(_db.products).insertOnConflictUpdate(companion);
+    await _refreshProducts(); // Força atualização visual
   }
 
   Future<void> deleteProduct(Product product) async {
     await _db.delete(_db.products).delete(product);
+    await _refreshProducts(); // Força atualização visual
   }
 
   Future<void> addExpense(Product product, int quantity, double price) async {
     final now = DateTime.now();
-    // Se estiver no mês atual, usa hoje. Se não, usa dia 1 do mês visualizado.
     final isViewingCurrentMonth = now.year == state.currentMonth.year && now.month == state.currentMonth.month;
     final dateToSave = isViewingCurrentMonth ? now : DateTime(state.currentMonth.year, state.currentMonth.month, 1);
 
@@ -127,10 +150,12 @@ class ExpensesViewModel extends StateNotifier<ExpensesState> {
       quantity: quantity,
     );
     await _db.into(_db.expenses).insert(expense);
+    await _refreshExpenses(); // Força atualização visual
   }
 
   Future<void> deleteExpense(Expense expense) async {
     await _db.delete(_db.expenses).delete(expense);
+    await _refreshExpenses(); // Força atualização visual
   }
 }
 
