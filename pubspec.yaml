@@ -56,5 +56,28 @@ dev_dependencies:
   mocktail: ^1.0.4
   flutter_lints: ^4.0.0
 
+  # Bibliotecas para gerar icones e splash screen
+  flutter_launcher_icons: "^0.13.1"
+  flutter_native_splash: "^2.4.0"
+
 flutter:
   uses-material-design: true
+  # Registo da pasta de assets para poderes usar a imagem dentro da app se quiseres
+  assets:
+    - assets/images/
+
+# --- Configuração dos Ícones da App ---
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/logo.png"
+  min_sdk_android: 21
+  remove_alpha_ios: true
+
+# --- Configuração do Ecrã de Lançamento (Splash Screen) ---
+flutter_native_splash:
+  color: "#FFFFFF" # Cor de fundo branca
+  image: "assets/images/logo.png"
+  android_12:
+    image: "assets/images/logo.png"
+    color: "#FFFFFF"
