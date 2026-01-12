@@ -15,7 +15,8 @@ class StatsScreen extends ConsumerStatefulWidget {
 }
 
 class _StatsScreenState extends ConsumerState<StatsScreen> {
-  bool showHours = true; // Toggle: true = Horas, false = Ganhos
+  // 0 = Horas, 1 = Ganhos, 2 = Despesas
+  int _selectedMode = 0; 
 
   @override
   Widget build(BuildContext context) {
@@ -23,6 +24,25 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
     final viewModel = ref.read(statsProvider.notifier);
     final settings = ref.watch(settingsViewModelProvider);
     final theme = Theme.of(context);
+
+    // Determinar valores para os cartões de resumo
+    String totalValueStr;
+    String averageValueStr;
+    Color highlightColor;
+
+    if (_selectedMode == 0) { // Horas
+      totalValueStr = "${state.totalAnnualHours.toStringAsFixed(1)} h";
+      averageValueStr = "${state.averageHours.toStringAsFixed(1)} h";
+      highlightColor = theme.colorScheme.primary;
+    } else if (_selectedMode == 1) { // Ganhos
+      totalValueStr = "${state.totalAnnualEarnings.toStringAsFixed(2)} ${settings.currency}";
+      averageValueStr = "${state.averageEarnings.toStringAsFixed(2)} ${settings.currency}";
+      highlightColor = Colors.green;
+    } else { // Despesas
+      totalValueStr = "${state.totalAnnualExpenses.toStringAsFixed(2)} ${settings.currency}";
+      averageValueStr = "${state.averageExpenses.toStringAsFixed(2)} ${settings.currency}";
+      highlightColor = Colors.red;
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -40,7 +60,6 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // 1. Cabeçalho Seguro (Sem Overflow)
                 Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
@@ -67,19 +86,19 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      // Toggle Horas/Ganhos (Agora em baixo, com espaço total)
+                      
+                      // Toggle: Horas | Ganhos | Despesas
                       SizedBox(
                         width: double.infinity,
-                        child: SegmentedButton<bool>(
+                        child: SegmentedButton<int>(
                           segments: const [
-                            ButtonSegment(value: true, label: Text("Horas"), icon: Icon(Icons.access_time)),
-                            ButtonSegment(value: false, label: Text("Ganhos"), icon: Icon(Icons.euro)),
+                            ButtonSegment(value: 0, label: Text("Horas"), icon: Icon(Icons.access_time)),
+                            ButtonSegment(value: 1, label: Text("Ganhos"), icon: Icon(Icons.attach_money)),
+                            ButtonSegment(value: 2, label: Text("Despesas"), icon: Icon(Icons.money_off)),
                           ],
-                          selected: {showHours},
-                          onSelectionChanged: (Set<bool> newSelection) {
-                            setState(() {
-                              showHours = newSelection.first;
-                            });
+                          selected: {_selectedMode},
+                          onSelectionChanged: (Set<int> newSelection) {
+                            setState(() => _selectedMode = newSelection.first);
                           },
                         ),
                       )
@@ -87,18 +106,18 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                   ),
                 ),
 
-                // 2. O Gráfico
+                // Gráfico
                 Expanded(
                   flex: 2,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 24, 16),
-                    child: _buildChart(state, theme, settings.currency),
+                    child: _buildChart(state, theme, settings.currency, highlightColor),
                   ),
                 ),
 
                 const SizedBox(height: 24),
 
-                // 3. Cartões de Resumo
+                // Resumo
                 Expanded(
                   flex: 1,
                   child: Container(
@@ -115,19 +134,15 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                         Expanded(
                           child: _SummaryItem(
                             label: "TOTAL ANUAL",
-                            value: showHours 
-                                ? "${state.totalAnnualHours.toStringAsFixed(1)} h"
-                                : "${state.totalAnnualEarnings.toStringAsFixed(2)} ${settings.currency}",
-                            color: theme.colorScheme.primary,
+                            value: totalValueStr,
+                            color: highlightColor,
                           ),
                         ),
                         Container(width: 1, height: 40, color: Colors.grey.withValues(alpha: 0.3)),
                         Expanded(
                           child: _SummaryItem(
                             label: "MÉDIA MENSAL",
-                            value: showHours
-                                ? "${state.averageHours.toStringAsFixed(1)} h"
-                                : "${state.averageEarnings.toStringAsFixed(2)} ${settings.currency}",
+                            value: averageValueStr,
                             color: theme.colorScheme.tertiary,
                           ),
                         ),
@@ -140,10 +155,14 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
     );
   }
 
-  Widget _buildChart(StatsState state, ThemeData theme, String currency) {
+  Widget _buildChart(StatsState state, ThemeData theme, String currency, Color barColor) {
     double maxY = 0;
     for (var m in state.monthlyData) {
-      final val = showHours ? m.hours : m.earnings;
+      double val = 0;
+      if (_selectedMode == 0) {val = m.hours;}
+      else if (_selectedMode == 1) {val = m.earnings;}
+      else {val = m.expenses;}
+      
       if (val > maxY) maxY = val;
     }
     maxY = maxY == 0 ? 10 : maxY * 1.2;
@@ -156,8 +175,9 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
           touchTooltipData: BarTouchTooltipData(
             getTooltipColor: (_) => theme.colorScheme.inverseSurface,
             getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              final suffix = _selectedMode == 0 ? 'h' : currency;
               return BarTooltipItem(
-                "${rod.toY.toStringAsFixed(1)} ${showHours ? 'h' : currency}",
+                "${rod.toY.toStringAsFixed(1)} $suffix",
                 TextStyle(color: theme.colorScheme.onInverseSurface, fontWeight: FontWeight.bold),
               );
             },
@@ -200,14 +220,17 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
         borderData: FlBorderData(show: false),
         gridData: const FlGridData(show: true, drawVerticalLine: false),
         barGroups: state.monthlyData.map((data) {
-          final value = showHours ? data.hours : data.earnings;
+          double value = 0;
+          if (_selectedMode == 0) {value = data.hours;}
+          else if (_selectedMode == 1) {value = data.earnings;}
+          else {value = data.expenses;}
           
           return BarChartGroupData(
             x: data.month,
             barRods: [
               BarChartRodData(
                 toY: value,
-                color: showHours ? theme.colorScheme.primary : theme.colorScheme.secondary,
+                color: barColor,
                 width: 16,
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
                 backDrawRodData: BackgroundBarChartRodData(

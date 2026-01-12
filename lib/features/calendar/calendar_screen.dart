@@ -11,6 +11,7 @@ import 'package:work_hours_tracker/features/settings/settings_screen.dart';
 import 'package:work_hours_tracker/features/settings/providers/settings_provider.dart';
 import 'package:work_hours_tracker/features/stats/stats_screen.dart';
 import 'package:work_hours_tracker/features/expenses/expenses_screen.dart';
+import 'package:work_hours_tracker/features/reports/report_screen.dart';
 
 class CalendarScreen extends ConsumerStatefulWidget {
   const CalendarScreen({super.key});
@@ -48,6 +49,11 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
             icon: const Icon(Icons.bar_chart),
             tooltip: "Estatísticas",
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StatsScreen())),
+          ),
+          IconButton(
+            icon: const Icon(Icons.message_outlined),
+            tooltip: "Enviar Relatório",
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ReportScreen())),
           ),
           IconButton(
             icon: Icon(

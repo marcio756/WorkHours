@@ -1,6 +1,6 @@
 name: work_hours_tracker
 description: "A work hours tracking application."
-publish_to: 'none' 
+publish_to: 'none'
 
 version: 1.0.0+1
 
@@ -10,7 +10,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-    
+
   # State Management
   flutter_riverpod: ^2.6.1
   riverpod_annotation: ^2.6.1
@@ -28,7 +28,7 @@ dependencies:
   table_calendar: ^3.1.2
   fl_chart: ^0.68.0
   intl: ^0.19.0
-  
+
   # Utilities
   shared_preferences: ^2.3.2
 
@@ -36,19 +36,22 @@ dependencies:
   flutter_local_notifications: ^17.2.2
   timezone: ^0.9.4
 
-  # Backup & Files (Versões Atualizadas para corrigir conflito)
-  file_picker: ^8.1.0  
-  share_plus: ^10.0.0 
+  # Backup & Files
+  file_picker: ^8.1.0
+  share_plus: ^10.0.0
+  
+  # SMS / Launchers
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-    
+
   # Code Generation
   build_runner: ^2.4.11
   drift_dev: ^2.20.0
   riverpod_generator: ^2.6.1
-  
+
   # Testing & Linting
   mocktail: ^1.0.4
   flutter_lints: ^4.0.0

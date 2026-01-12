@@ -6,7 +6,6 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'package:flutter/material.dart';
 
 class NotificationService {
-  // Padrão Singleton
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
   NotificationService._internal();
@@ -15,14 +14,12 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   Future<void> init() async {
-    // Inicializar Timezones
     tz.initializeTimeZones();
 
-    // Configuração Android
+    // Tenta usar o ícone padrão do Flutter se o ic_launcher falhar
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    // Configuração iOS (Permissões básicas)
     const DarwinInitializationSettings initializationSettingsDarwin =
         DarwinInitializationSettings(
       requestSoundPermission: false,
@@ -35,16 +32,38 @@ class NotificationService {
       iOS: initializationSettingsDarwin,
     );
 
-    await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+    await flutterLocalNotificationsPlugin.initialize(
+      initializationSettings,
+      onDidReceiveNotificationResponse: (details) {
+        debugPrint("Notificação clicada: ${details.payload}");
+      },
+    );
   }
 
-  Future<void> requestPermissions() async {
-    await flutterLocalNotificationsPlugin
+  // --- ATUALIZADO: Retorna bool e pede permissões específicas ---
+  Future<bool> requestPermissions() async {
+    debugPrint("A pedir permissões de notificação...");
+    
+    // 1. Pedir Notificações (Android 13+)
+    final bool? grantedNotifications = await flutterLocalNotificationsPlugin
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
     
-    await flutterLocalNotificationsPlugin
+    debugPrint("Permissão Notificações: $grantedNotifications");
+
+    // 2. Pedir Alarmes Exatos (Android 12+) - Crucial para agendamento
+    // Nota: Se isto falhar, o agendamento não funciona
+    final androidImplementation = flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+            
+    if (androidImplementation != null) {
+        // Tenta pedir permissão de alarme exato (pode abrir settings)
+        await androidImplementation.requestExactAlarmsPermission(); 
+    }
+
+    final bool? grantedIOS = await flutterLocalNotificationsPlugin
         .resolvePlatformSpecificImplementation<
             IOSFlutterLocalNotificationsPlugin>()
         ?.requestPermissions(
@@ -52,8 +71,44 @@ class NotificationService {
           badge: true,
           sound: true,
         );
+
+    return (grantedNotifications ?? false) || (grantedIOS ?? false);
   }
 
+  Future<void> showTestNotification({required String title, required String body}) async {
+    try {
+      debugPrint("Agendando notificação de teste para daqui a 5s...");
+      
+      // Detalhes explícitos para garantir que aparece
+      const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+        'test_channel_id',
+        'Canal de Testes',
+        channelDescription: 'Canal para testes de notificação',
+        importance: Importance.max,
+        priority: Priority.high,
+        ticker: 'ticker',
+        enableVibration: true,
+        playSound: true,
+      );
+
+      await flutterLocalNotificationsPlugin.zonedSchedule(
+        999,
+        title,
+        body,
+        tz.TZDateTime.now(tz.local).add(const Duration(seconds: 5)),
+        const NotificationDetails(android: androidDetails, iOS: DarwinNotificationDetails()),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle, // Tenta furar o modo doze
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+      
+      debugPrint("Notificação agendada! Se não aparecer em 5s, verifica as permissões nas Definições da App.");
+    } catch (e) {
+      debugPrint("ERRO CRÍTICO AO AGENDAR: $e");
+    }
+  }
+
+  // ... (manter os métodos scheduleDailyNotification, scheduleMonthlyNotification, etc. iguais) ...
   Future<void> scheduleDailyNotification({
     required int id,
     required String title,
@@ -67,9 +122,8 @@ class NotificationService {
       _nextInstanceOfTime(time),
       const NotificationDetails(
         android: AndroidNotificationDetails(
-          'daily_reminder_channel', // id do canal
-          'Lembrete Diário', // nome do canal
-          channelDescription: 'Notificação para registar horas',
+          'daily_reminder_channel',
+          'Lembrete Diário',
           importance: Importance.max,
           priority: Priority.high,
         ),
@@ -78,7 +132,35 @@ class NotificationService {
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
-      matchDateTimeComponents: DateTimeComponents.time, // Repete diariamente à mesma hora
+      matchDateTimeComponents: DateTimeComponents.time,
+    );
+  }
+
+  Future<void> scheduleMonthlyNotification({
+    required int id,
+    required String title,
+    required String body,
+    required int dayOfMonth,
+    required TimeOfDay time,
+  }) async {
+    await flutterLocalNotificationsPlugin.zonedSchedule(
+      id,
+      title,
+      body,
+      _nextInstanceOfMonthDay(dayOfMonth, time),
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'monthly_report_channel',
+          'Relatório Mensal',
+          importance: Importance.max,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.dayOfMonthAndTime,
     );
   }
 
@@ -93,6 +175,18 @@ class NotificationService {
 
     if (scheduledDate.isBefore(now)) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
+    }
+    return scheduledDate;
+  }
+
+  tz.TZDateTime _nextInstanceOfMonthDay(int day, TimeOfDay time) {
+    final tz.TZDateTime now = tz.TZDateTime.now(tz.local);
+    tz.TZDateTime scheduledDate = tz.TZDateTime(
+        tz.local, now.year, now.month, day, time.hour, time.minute);
+
+    if (scheduledDate.isBefore(now)) {
+      scheduledDate = tz.TZDateTime(
+          tz.local, now.year, now.month + 1, day, time.hour, time.minute);
     }
     return scheduledDate;
   }

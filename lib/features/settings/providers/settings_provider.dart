@@ -9,12 +9,10 @@ import 'package:work_hours_tracker/data/local/database.dart';
 import 'package:work_hours_tracker/data/providers/database_provider.dart';
 import 'package:work_hours_tracker/data/repository/preferences_repository.dart';
 
-// 1. Provider para instância assíncrona do SharedPreferences
 final sharedPreferencesProvider = FutureProvider<SharedPreferences>((ref) async {
   return await SharedPreferences.getInstance();
 });
 
-// 2. Provider do Repositório (depende do SharedPreferences)
 final preferencesRepositoryProvider = Provider<PreferencesRepository?>((ref) {
   final prefsAsync = ref.watch(sharedPreferencesProvider);
   return prefsAsync.when(
@@ -24,15 +22,19 @@ final preferencesRepositoryProvider = Provider<PreferencesRepository?>((ref) {
   );
 });
 
-// 3. Estado das Definições
 class SettingsState {
   final double hourlyRate;
   final String currency;
   final double holidayMultiplier;
   final List<int> restDays;
-  final int appTheme; // 0=Auto, 1=Light, 2=Dark
+  final int appTheme;
   final TimeOfDay? notificationTime;
   final bool isLoading;
+  
+  // Novos Campos
+  final bool reportAutoEnabled;
+  final int reportDay;
+  final String reportPhone;
 
   SettingsState({
     this.hourlyRate = 0.0,
@@ -42,6 +44,10 @@ class SettingsState {
     this.appTheme = 0,
     this.notificationTime,
     this.isLoading = true,
+    // Defaults
+    this.reportAutoEnabled = false,
+    this.reportDay = 1,
+    this.reportPhone = '',
   });
 
   SettingsState copyWith({
@@ -53,6 +59,9 @@ class SettingsState {
     TimeOfDay? notificationTime,
     bool forceNotificationTimeNull = false,
     bool? isLoading,
+    bool? reportAutoEnabled,
+    int? reportDay,
+    String? reportPhone,
   }) {
     return SettingsState(
       hourlyRate: hourlyRate ?? this.hourlyRate,
@@ -62,14 +71,16 @@ class SettingsState {
       appTheme: appTheme ?? this.appTheme,
       notificationTime: forceNotificationTimeNull ? null : (notificationTime ?? this.notificationTime),
       isLoading: isLoading ?? this.isLoading,
+      reportAutoEnabled: reportAutoEnabled ?? this.reportAutoEnabled,
+      reportDay: reportDay ?? this.reportDay,
+      reportPhone: reportPhone ?? this.reportPhone,
     );
   }
 }
 
-// 4. ViewModel
 class SettingsViewModel extends StateNotifier<SettingsState> {
   final PreferencesRepository? _repo;
-  final AppDatabase _db; // Necessário para Backup/Restore
+  final AppDatabase _db;
 
   SettingsViewModel(this._repo, this._db) : super(SettingsState()) {
     _loadSettings();
@@ -98,6 +109,10 @@ class SettingsViewModel extends StateNotifier<SettingsState> {
       appTheme: _repo.getAppTheme(),
       notificationTime: time,
       isLoading: false,
+      // Carregar novas settings
+      reportAutoEnabled: _repo.getReportAutoEnabled(),
+      reportDay: _repo.getReportDay(),
+      reportPhone: _repo.getReportPhone(),
     );
   }
 
@@ -140,7 +155,6 @@ class SettingsViewModel extends StateNotifier<SettingsState> {
     } else {
       final timeStr = '${time.hour}:${time.minute}';
       await _repo?.setNotificationTime(timeStr);
-      
       await NotificationService().requestPermissions();
       await NotificationService().scheduleDailyNotification(
         id: 0,
@@ -148,12 +162,41 @@ class SettingsViewModel extends StateNotifier<SettingsState> {
         body: 'Não te esqueças de registar o teu dia!',
         time: time,
       );
-      
       state = state.copyWith(notificationTime: time);
     }
   }
 
-  // --- MÉTODOS DE BACKUP ---
+  // --- NOVA LÓGICA DE RELATÓRIO AUTOMÁTICO ---
+
+  Future<void> updateReportSettings({
+    required bool enabled,
+    required int day,
+    required String phone,
+  }) async {
+    await _repo?.setReportAutoEnabled(enabled);
+    await _repo?.setReportDay(day);
+    await _repo?.setReportPhone(phone);
+
+    state = state.copyWith(
+      reportAutoEnabled: enabled,
+      reportDay: day,
+      reportPhone: phone,
+    );
+
+    // ID 1 para relatório mensal (0 é para diário)
+    if (enabled) {
+      await NotificationService().requestPermissions();
+      await NotificationService().scheduleMonthlyNotification(
+        id: 1, 
+        title: 'Enviar Relatório Mensal',
+        body: 'O teu relatório do mês passado está pronto para enviar.',
+        dayOfMonth: day,
+        time: const TimeOfDay(hour: 10, minute: 0), // Define 10:00 da manhã como padrão
+      );
+    } else {
+      await NotificationService().cancelNotification(1);
+    }
+  }
 
   Future<void> createBackup() async {
     try {
@@ -171,7 +214,6 @@ class SettingsViewModel extends StateNotifier<SettingsState> {
     try {
       state = state.copyWith(isLoading: true);
       final entries = await BackupService().pickAndParseBackup();
-      
       if (entries.isNotEmpty) {
         await _db.insertBatchWorkEntries(entries);
         return entries.length;
@@ -186,9 +228,8 @@ class SettingsViewModel extends StateNotifier<SettingsState> {
   }
 }
 
-// 5. O Provider principal
 final settingsViewModelProvider = StateNotifierProvider<SettingsViewModel, SettingsState>((ref) {
   final repo = ref.watch(preferencesRepositoryProvider);
-  final db = ref.watch(databaseProvider); // Injeção da DB
+  final db = ref.watch(databaseProvider);
   return SettingsViewModel(repo, db);
 });
