@@ -30,7 +30,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     
     final theme = Theme.of(context);
 
-    // Capitalizar título
+    // Capitalizar título (ex: "Janeiro 2024")
     final dateStr = DateFormat('MMMM yyyy', 'pt_PT').format(state.currentMonth);
     final capitalizedTitle = dateStr.replaceFirst(dateStr[0], dateStr[0].toUpperCase());
 
@@ -81,6 +81,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                 children: [
                   _buildCalendarCard(state, viewModel, settingsState.restDays, theme),
                   const SizedBox(height: 16),
+                  // AQUI: O cartão de resumo atualizado
                   _buildSummaryCard(summary, settingsState.currency, theme),
                   const SizedBox(height: 16),
                 ],
@@ -142,8 +143,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       padding: const EdgeInsets.fromLTRB(8, 16, 8, 16),
       child: Column(
         children: [
-          // INSERIR CABEÇALHO PERSONALIZADO AQUI
-          // Removemos o do TableCalendar e usamos o nosso para garantir tamanho uniforme
+          // Cabeçalho personalizado dos dias da semana
           _buildDaysOfWeekHeader(theme),
           const SizedBox(height: 8),
 
@@ -153,7 +153,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
             lastDay: DateTime.utc(2030, 12, 31),
             focusedDay: state.currentMonth,
             headerVisible: false,
-            daysOfWeekVisible: false, // DESLIGAR O ORIGINAL
+            daysOfWeekVisible: false, // Desligamos o original para usar o nosso customizado
             startingDayOfWeek: StartingDayOfWeek.monday,
             
             rowHeight: 52,
@@ -194,18 +194,14 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     );
   }
 
-  // --- NOVO: Cabeçalho de Dias da Semana Uniforme ---
+  // --- Cabeçalho de Dias da Semana Uniforme ---
   Widget _buildDaysOfWeekHeader(ThemeData theme) {
-    // Lista fixa para garantir tamanho curto
     const days = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM'];
     
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Calcular tamanho da fonte dinâmico: largura / 7 dias / fator de escala
-        // Garante que TODOS diminuem se o ecrã for pequeno
+        // Calcular tamanho da fonte dinâmico
         final dynamicFontSize = (constraints.maxWidth / 7) * 0.35;
-        
-        // Limitar tamanho máximo para não ficar gigante em tablets
         final fontSize = dynamicFontSize.clamp(10.0, 14.0);
 
         return Row(
@@ -213,23 +209,23 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
           children: days.asMap().entries.map((entry) {
             final idx = entry.key;
             final label = entry.value;
-            // Sábado (5) e Domingo (6) a vermelho
+            // Sábado (5) e Domingo (6) a vermelho/destaque
             final isWeekend = idx >= 5; 
             
             return Expanded(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2), // Pequeno espaço entre nomes
+                padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: Text(
                   label,
                   textAlign: TextAlign.center,
                   style: theme.textTheme.labelLarge!.copyWith(
-                    fontSize: fontSize, // Tamanho UNIFORME calculado acima
+                    fontSize: fontSize,
                     fontWeight: FontWeight.w800,
                     color: isWeekend 
                         ? theme.colorScheme.error.withValues(alpha: 0.7) 
                         : theme.colorScheme.secondary,
                   ),
-                  maxLines: 1, // Garante 1 linha
+                  maxLines: 1,
                 ),
               ),
             );
@@ -261,7 +257,10 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   }
 
   Widget _buildSummaryCard(MonthlySummary summary, String currency, ThemeData theme) {
-     final totalHours = summary.totalHours.toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '');
+     // CORREÇÃO CRÍTICA:
+     // Usamos 'billableHours' para mostrar o total já multiplicado pelos feriados (ex: 51.5h).
+     // Se quiséssemos mostrar apenas o tempo de relógio, usaríamos 'physicalHours'.
+     final totalHours = summary.billableHours.toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '');
      final earnings = summary.earnings.toStringAsFixed(2);
 
      return Container(
@@ -275,13 +274,13 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
          mainAxisAlignment: MainAxisAlignment.spaceAround,
          children: [
            _StatItem(
-             label: "TOTAL HORAS", 
+             label: "HORAS (FAT.)", // Alterado para indicar que inclui multiplicadores
              value: "$totalHours h", 
              color: theme.colorScheme.onPrimaryContainer
            ),
            Container(width: 1, height: 40, color: theme.colorScheme.onPrimaryContainer.withValues(alpha: 0.2)),
            _StatItem(
-             label: "GANHOS EST.", 
+             label: "A RECEBER", 
              value: "$earnings $currency",
              color: theme.colorScheme.onPrimaryContainer
            ),

@@ -88,18 +88,23 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
             drift.Variable(DateUtilsHelper.toIsoDate(end))
         ))).get();
 
-      // 3. Calcular Totais
-      double totalHours = 0.0;
-      double totalEarningsWork = 0.0; // Valor EXATO
+      // 3. Calcular Totais (Refatorizado para clareza)
+      double totalPhysicalHours = 0.0; // Horas reais trabalhadas (relógio)
+      double totalBillableHours = 0.0; // Horas para pagamento (após multiplicador)
       
       entries.sort((a, b) => a.date.compareTo(b.date));
+      
       for (var entry in entries) {
         if (entry.hours > 0) {
           final multiplier = entry.isHoliday ? settings.holidayMultiplier : 1.0;
-          totalHours += entry.hours;
-          totalEarningsWork += (entry.hours * multiplier * settings.hourlyRate);
+          
+          totalPhysicalHours += entry.hours;
+          totalBillableHours += (entry.hours * multiplier);
         }
       }
+
+      // Cálculo monetário baseia-se sempre nas horas faturáveis
+      final double totalEarningsWork = totalBillableHours * settings.hourlyRate;
 
       double totalExpenses = 0.0;
       for (var exp in expenses) {
@@ -108,8 +113,6 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
 
       // 4. Calcular Líquido e Arredondar
       final rawNetReceivable = totalEarningsWork - totalExpenses;
-      
-      // APLICAÇÃO DA REGRA: Arredondar APENAS o total final c/ despesas
       final roundedNetReceivable = _roundToNearestFive(rawNetReceivable);
 
       // 5. Construir Mensagem
@@ -119,14 +122,22 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
       sb.writeln("RELATÓRIO DE HORAS - $monthName");
       sb.writeln("--------------------------------");
       sb.writeln("Taxa: ${settings.hourlyRate.toStringAsFixed(2)} ${settings.currency}/h");
-      sb.writeln("Total Horas: ${totalHours.toStringAsFixed(1)} h");
+      
+      // Se houver diferença entre horas reais e faturáveis (por causa de feriados), mostra ambas
+      if (totalBillableHours > totalPhysicalHours) {
+        sb.writeln("Horas Reais: ${totalPhysicalHours.toStringAsFixed(1)} h");
+        sb.writeln("Horas Faturáveis: ${totalBillableHours.toStringAsFixed(1)} h (c/ extras)");
+      } else {
+        sb.writeln("Total Horas: ${totalPhysicalHours.toStringAsFixed(1)} h");
+      }
+
       sb.writeln("Total Despesas: ${totalExpenses.toStringAsFixed(2)} ${settings.currency}");
       
-      // Total a Receber (Bruto) -> AGORA MOSTRA O VALOR EXATO
+      // Total a Receber (Bruto)
       sb.writeln("Total a Receber: ${totalEarningsWork.toStringAsFixed(2)} ${settings.currency}"); 
       
-      // Total a Receber c/ Despesas -> MOSTRA O VALOR ARREDONDADO AO 5
-      sb.writeln("Total a Receber c/ Despesas: ${roundedNetReceivable.toStringAsFixed(2)} ${settings.currency}");
+      // Total a Receber c/ Despesas e Arredondamento
+      sb.writeln("Total Final (Arredondado): ${roundedNetReceivable.toStringAsFixed(2)} ${settings.currency}");
 
       if (!isShort) {
         sb.writeln("\nDETALHES:");
@@ -138,7 +149,11 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
             for (var entry in entries) {
               final date = DateTime.parse(entry.date);
               final dayStr = DateFormat('dd/MM', 'pt_PT').format(date);
-              final extraInfo = entry.isHoliday ? " (Feriado/Extra)" : "";
+              
+              // Indica visualmente que o dia valeu mais
+              final multiplier = entry.isHoliday ? settings.holidayMultiplier : 1.0;
+              final extraInfo = entry.isHoliday ? " (Feriado x$multiplier)" : "";
+              
               final desc = entry.description != null && entry.description!.isNotEmpty 
                   ? " - ${entry.description}" 
                   : "";
@@ -317,7 +332,7 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
               ),
               child: Text(
                 _isShortReport 
-                    ? "Envia apenas os totais (Horas, Taxa e Valor a Receber)."
+                    ? "Envia apenas os totais."
                     : "Envia os totais e uma lista detalhada de horas e despesas.",
                 style: theme.textTheme.bodySmall,
               ),

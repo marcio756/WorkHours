@@ -1,19 +1,21 @@
 // lib/features/calendar/providers/calendar_provider.dart
 
-import 'dart:async'; // Import necessário para StreamSubscription
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:work_hours_tracker/data/local/database.dart';
 import 'package:work_hours_tracker/core/utils/date_utils_helper.dart';
 import 'package:work_hours_tracker/data/providers/database_provider.dart';
 import 'package:work_hours_tracker/features/settings/providers/settings_provider.dart';
 
-// --- DATA CLASS PARA O RESUMO ---
+// --- DATA CLASS REFATORIZADA ---
 class MonthlySummary {
-  final double totalHours;
+  final double physicalHours; // Horas reais (relógio)
+  final double billableHours; // Horas a pagar (com multiplicadores)
   final double earnings;
 
   MonthlySummary({
-    this.totalHours = 0.0,
+    this.physicalHours = 0.0,
+    this.billableHours = 0.0,
     this.earnings = 0.0,
   });
 }
@@ -25,26 +27,32 @@ final monthlySummaryProvider = Provider.autoDispose<MonthlySummary>((ref) {
 
   if (settings.isLoading) return MonthlySummary();
 
-  double totalHours = 0.0;
-  double totalEarnings = 0.0;
+  double physicalHours = 0.0;
+  double billableHours = 0.0;
 
   for (var entry in calendarState.entries.values) {
-    // Verifica se a entrada pertence ao mês atual (para não somar dias "vizinhos" que a query possa trazer)
-    // A query já filtra, mas segurança extra não faz mal
     if (entry.hours > 0) {
       final multiplier = entry.isHoliday ? settings.holidayMultiplier : 1.0;
-      totalHours += entry.hours;
-      totalEarnings += (entry.hours * multiplier * settings.hourlyRate);
+      
+      // 1. Soma horas de relógio (ex: 3h)
+      physicalHours += entry.hours;
+      
+      // 2. Soma horas faturáveis (ex: 3h * 2 = 6h)
+      billableHours += (entry.hours * multiplier);
     }
   }
 
+  // O valor ganho é sempre sobre as horas faturáveis
+  final totalEarnings = billableHours * settings.hourlyRate;
+
   return MonthlySummary(
-    totalHours: totalHours,
+    physicalHours: physicalHours,
+    billableHours: billableHours, // <--- O valor que tu queres ver (51.5)
     earnings: totalEarnings,
   );
 });
 
-// --- ESTADO DO CALENDÁRIO ---
+// ... (O resto do ficheiro CalendarState e CalendarViewModel mantém-se igual)
 class CalendarState {
   final DateTime currentMonth;
   final Set<DateTime> selectedDates;
@@ -73,11 +81,8 @@ class CalendarState {
   }
 }
 
-// --- VIEWMODEL DO CALENDÁRIO (CORRIGIDO PARA PERFORMANCE) ---
 class CalendarViewModel extends StateNotifier<CalendarState> {
   final AppDatabase _db;
-  
-  // Variável para guardar a subscrição ativa
   StreamSubscription<List<WorkEntry>>? _entriesSubscription;
 
   CalendarViewModel(this._db) : super(CalendarState(currentMonth: DateTime.now())) {
@@ -86,20 +91,16 @@ class CalendarViewModel extends StateNotifier<CalendarState> {
 
   @override
   void dispose() {
-    // Limpar a subscrição quando o ecrã fecha
     _entriesSubscription?.cancel();
     super.dispose();
   }
 
   void _loadEntries() {
-    // 1. Cancelar a escuta anterior para não acumular processos (A SOLUÇÃO DA LENTIDÃO)
     _entriesSubscription?.cancel();
 
     final start = DateTime(state.currentMonth.year, state.currentMonth.month, 1);
-    // Nota: Usar dia 0 do mês seguinte é mais seguro para apanhar o último dia
     final end = DateTime(state.currentMonth.year, state.currentMonth.month + 1, 0);
 
-    // 2. Iniciar nova escuta e guardar a referência
     _entriesSubscription = _db.watchEntriesBetween(
       DateUtilsHelper.toIsoDate(start),
       DateUtilsHelper.toIsoDate(end),
@@ -107,8 +108,9 @@ class CalendarViewModel extends StateNotifier<CalendarState> {
       final entriesMap = {
         for (var e in entriesList) DateTime.parse(e.date): e
       };
-      // Atualizar estado apenas se o widget ainda estiver montado (Riverpod gere isto, mas é boa prática no dispose)
-      state = state.copyWith(entries: entriesMap);
+      if (mounted) {
+        state = state.copyWith(entries: entriesMap);
+      }
     });
   }
 
@@ -122,7 +124,6 @@ class CalendarViewModel extends StateNotifier<CalendarState> {
       selectedDates: {}, 
       isSelectionMode: false,
     );
-    // Recarregar dados para o novo mês
     _loadEntries();
   }
 
